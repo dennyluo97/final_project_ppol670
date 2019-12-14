@@ -1,1 +1,590 @@
 
+---
+title: "Final Report"
+author: "Hanwen_Luo_HL756"
+date: "12/13/2019"
+fontsize: 12pt
+header-includes:
+    - \usepackage{setspace}\doublespacing
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+    toc: yes
+---
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+require(tidyverse)
+require(readr)
+require(tidyr)
+require(caret)
+require(recipes)
+require(vip)
+require(pdp)
+require(ggplot2)
+```
+
+# Introduction
+
+In general, this project is aiming to explore the relationship between CO2 emission and GDP growth among different countries. However, since it can already be considered as common knowledge that CO2 emission and GDP growth are associated, this project focus on more detailed correlations and has two innovations. First, “GDP growth” is unpacked into several more specific variables to see which variable is actually doing the heavy-lifting of driving CO2 emission. Second, only the top 60 countries with the highest GDP in the world are selected to be tested and separated into two groups, one contains top 30 countries and the other contains top 31-60 countries.
+
+$~$
+
+There are two goals of this project. First of all, it is aiming to find out that, among all the economic variables collected that affect GDP growth, which ones are the most important. Second of all, it is aiming to see whether the most important variables are different between two country groups, which might give a sense of if country development level would lead to the difference of the factors that have strong influence on CO2 emissions. This could better help policy makers, especially those who focus on environmental areas, make plans on how to negotiate with companies in related fields and design targeted regulations and therefore make contributions to cutting down CO2 emissions.
+
+$~$
+
+To be specific, in this project, I first collected data of variables that to some degree represent or drive GDP growth and also have something to do with CO2 emissions. Then, I made these ‘dirty’ datasets tidy and combine them together so as to get the final datasets to work on. Before going into model running, I examined variables to see their classes and distributions. The next step is to go through model testing process and select out the model with best performance. At last, I used the best model to analysis the variable importance and partial dependence.
+
+# Problem Statement and Background
+
+Historically, CO2 emissions have been primarily driven by increasing fuel consumption, which is always the fundament of economic growth. As we all know, the relationship between CO2 emission and economic growth has been well established. However, there still might be some more specific and detailed factors that drive GDP growth and also influence CO2 emission. 
+
+$~$
+
+This correlation is also present over time: Countries begin in the bottom-left of the chart at low CO2 and low GDP, and move upwards and to the right. Historically, where fossil fuels are the dominant form of energy, we therefore see increased CO2 emissions as an unintended consequence of development and economic prosperity[1].
+
+$~$
+
+The goal of this project, as stated above, is to explore what variables that affect economy are the most important ones that drive CO2 emission and whether this association is different for countries with different development level.
+
+# Data
+The data used in this project are all collected from World Bank Open Data, which is a free and open access to global development data. The data can be accessed here: https://data.worldbank.org
+
+$~$
+
+The datasets of indicators collected contain data of 265 countries and regions in the world from 1960 to 2019, each indicator has an individual dataset. For these detailed variables of interest, I am looking at CO2 emission (outcome), GDP growth, access to electricity, urban and rural population, foreign direct investment, PM2.5, agricultural industry value, and also investment in environment related industries such as water, transportation and energy.
+
+$~$
+
+The ideal dataset I need is one with different indicators as variables and one specific column called ‘year’ that contains the values of all indicators from 1960 to 2019 and a column contains country names. Therefore, data wrangling is a very important part of this project. All the datasets collected have year as the columns, and therefore have 63 variables (Country, Country Code, Indicator, Year from 1960 to 2019). Even though I collected the data from World Bank which is supposed to have relatively comprehensive data for all countries, I still found that a lot of indicators have many missing values, which might be because some indicators are too specific so data are difficult to collect, or because some countries are authoritarianism and unwilling to disclose related data, or simply because some countries are too poor to pay attention to collecting data for different areas. Whichever reason it might be, this lack of data brings trouble to my analysis. Since there are only a few developed countries in the world and a relatively small group size is enough to distinguish two different development level country groups, there is no need for this project to include all the countries in the world. Therefore, I decided to only take top 60 countries with the highest GDP into this project and separate them into two groups, each has a size of 30. Ideally, the unit of observation should be country-year.
+
+$~$
+
+First, after read in all the datasets, I selected out top 30 countries with the highest GDP by their country codes through filter function and deleted ‘code’ columns through pipe, and then attained 12 indicator datasets to be combined. Next, I used gather function from ‘tidyverse’ package to reshape every indicator dataset to transform them from wide format to long format, generating a new ‘year’ column and another new column named as the indicator containing the values. After reshaping, I rearranged every dataset alphabetically through arrange function so that all of them have the same order. Then, I deleted ‘year’, ‘country’ and ‘indicator’ columns in all the datasets except the dataset for urban population in which I only deleted ‘indicator’ column. The urban population is the first dataset in the combining process, so I have to keep its ‘year’ and ‘country’ column for the final dataset. Finally, I used bind_cols function to combine all the indicator datasets and got a complete dataset with 14 variables (country, year, 12 indicators). Then, I selected out top 31-60 countries as the second group and repeated every step. Finally, after data wrangling process, I obtained two datasets of different country groups that are ready for analysis.
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Read in all the datasets
+urban_pop <- read_csv("Urban_population.csv")
+rural_pop <- read_csv("Rural_population.csv")
+GDP_growth <- read_csv("GDP_growth.csv")
+industry_value <- read_csv("Industry_value_added_ofGDP.csv")
+agri_value <- read_csv("Agri_forestry_fishing_value_added_ofGDP.csv")
+inves_water <- read_csv("Investment_water_sanitation.csv")
+inves_transport <- read_csv("Investment_transport.csv")
+inves_energy <- read_csv("Investment_energy.csv")
+PM2.5 <- read_csv("PM2.5_pollution.csv")
+CO2_emissions <- read_csv("CO2_emission.csv")
+access_electricity_ofpop <- read_csv("Access_electricity_ofpop.csv")
+FDI <- read_csv("FDI.csv")
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Select out countries that have top 30 GDP as the first group (top 30 countries)
+urban_pop_1 <- filter(urban_pop, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+rural_pop_1 <- filter(rural_pop, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+GDP_growth_1 <- filter(GDP_growth, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+industry_value_1 <- filter(industry_value, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+agri_value_1 <- filter(agri_value, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+inves_water_1 <- filter(inves_water, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+inves_transport_1 <- filter(inves_transport, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+inves_energy_1 <- filter(inves_energy, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+PM2.5_1 <- filter(PM2.5, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+CO2_emissions_1 <- filter(CO2_emissions, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+access_electricity_ofpop_1 <- filter(access_electricity_ofpop, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+FDI_1 <- filter(FDI, Code=="USA" | Code=="CHN" | Code=="JPN" | Code=="DEU" | Code=="IND" | Code=="FRA" | Code=="GBR" | Code=="BRA" | Code=="ITA" | Code=="CAN" | Code=="KOR" | Code=="RUS" | Code=="AUS" | Code=="ESP" | Code=="MEX" | Code=="IDN" | Code=="TUR" | Code=="NLD" | Code=="SAU" | Code=="CHE" | Code=="ARG" | Code=="SWE" | Code=="POL" | Code=="BEL" | Code=="NGA" | Code=="THA" | Code=="AUT" | Code=="IRN" | Code=="ARE" | Code=="NOR") %>%
+  select(-Code)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Select out countries that have top 20 GDP as the second group
+urban_pop_2 <- filter(urban_pop, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+rural_pop_2 <- filter(rural_pop, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+GDP_growth_2 <- filter(GDP_growth, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+industry_value_2 <- filter(industry_value, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+agri_value_2 <- filter(agri_value, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+inves_water_2 <- filter(inves_water, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+inves_transport_2 <- filter(inves_transport, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+inves_energy_2 <- filter(inves_energy, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+PM2.5_2 <- filter(PM2.5, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+CO2_emissions_2 <- filter(CO2_emissions, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+access_electricity_ofpop_2 <- filter(access_electricity_ofpop, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+FDI_2 <- filter(FDI, Code=="PHL" | Code=="MYS" | Code=="IRL" | Code=="ZAF" | Code=="ISR" | Code=="DNK" | Code=="HKG" | Code=="COL" | Code=="SGP" | Code=="BGD" | Code=="FIN" | Code=="CHL" | Code=="VNM" | Code=="CZE" | Code=="PER" | Code=="PRT" | Code=="GRC" | Code=="NZL" | Code=="IRQ" | Code=="QAT" | Code=="DZA" | Code=="VEN" | Code=="KAZ" | Code=="SDN" | Code=="HUN" | Code=="AGO" | Code=="KWT" | Code=="MAR" | Code=="UKR" | Code=="SVK") %>%
+  select(-Code)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Make all datasets tidy for group one (top 30 countries)
+urban_pop_1 <- gather(urban_pop_1,year,urban_population,-Country,-Indicator) %>%
+  select(-Indicator) %>%
+  arrange(Country)
+rural_pop_1 <- gather(rural_pop_1,year,rural_population,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+GDP_growth_1 <- gather(GDP_growth_1,year,GDP_growth,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+industry_value_1 <- gather(industry_value_1,year,industry_value,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+agri_value_1 <- gather(agri_value_1,year,agri_value,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+inves_water_1 <- gather(inves_water_1,year,investment_water,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+inves_transport_1 <- gather(inves_transport_1,year,investment_transport,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+inves_energy_1 <- gather(inves_energy_1,year,investment_energy,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+PM2.5_1 <- gather(PM2.5_1,year,PM2.5,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+CO2_emissions_1 <- gather(CO2_emissions_1,year,CO2_emission,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+access_electricity_ofpop_1 <- gather(access_electricity_ofpop_1,year,access_electricity_ofpopulation,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+FDI_1 <- gather(FDI_1,year,FDI,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Make all datasets tidy for group two (top 31-60 countries)
+urban_pop_2 <- gather(urban_pop_2,year,urban_population,-Country,-Indicator) %>%
+  select(-Indicator) %>%
+  arrange(Country)
+rural_pop_2 <- gather(rural_pop_2,year,rural_population,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+GDP_growth_2 <- gather(GDP_growth_2,year,GDP_growth,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+industry_value_2 <- gather(industry_value_2,year,industry_value,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+agri_value_2 <- gather(agri_value_2,year,agri_value,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+inves_water_2 <- gather(inves_water_2,year,investment_water,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+inves_transport_2 <- gather(inves_transport_2,year,investment_transport,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+inves_energy_2 <- gather(inves_energy_2,year,investment_energy,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+PM2.5_2 <- gather(PM2.5_2,year,PM2.5,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+CO2_emissions_2 <- gather(CO2_emissions_2,year,CO2_emission,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+access_electricity_ofpop_2 <- gather(access_electricity_ofpop_2,year,access_electricity_ofpopulation,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+FDI_2 <- gather(FDI_2,year,FDI,-Country,-Indicator) %>%
+  arrange(Country) %>%
+  select(-Indicator,-year,-Country)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Merge all datasets for group one (top 30 countries)
+fulldata_1 <- bind_cols(CO2_emissions_1,urban_pop_1,rural_pop_1,GDP_growth_1,industry_value_1,agri_value_1,inves_energy_1,inves_transport_1,inves_water_1,PM2.5_1,access_electricity_ofpop_1,FDI_1)
+
+# Rearrange columns
+fulldata_1 <- select(fulldata_1,Country,year,CO2_emission,urban_population,rural_population,GDP_growth,industry_value,agri_value,investment_energy,investment_transport,investment_water,PM2.5,access_electricity_ofpopulation,FDI)
+
+# Drop all the missing values in CO2_emission(outcome variable)
+fulldata_1 <- fulldata_1 %>%
+  filter(!is.na(CO2_emission))
+
+head(fulldata_1)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Merge all datasets for group two (top 31-60 countries)
+fulldata_2 <- bind_cols(CO2_emissions_2,urban_pop_2,rural_pop_2,GDP_growth_2,industry_value_2,agri_value_2,inves_energy_2,inves_transport_2,inves_water_2,PM2.5_2,access_electricity_ofpop_2,FDI_2)
+
+# Rearrange columns
+fulldata_2 <- select(fulldata_2,Country,year,CO2_emission,urban_population,rural_population,GDP_growth,industry_value,agri_value,investment_energy,investment_transport,investment_water,PM2.5,access_electricity_ofpopulation,FDI)
+
+# Drop all the missing values in CO2_emission(outcome variable)
+fulldata_2 <- fulldata_2 %>%
+  filter(!is.na(CO2_emission))
+
+head(fulldata_2)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Split up the data
+train_data_1 <- filter(fulldata_1,fulldata_1$year < '2000' ) # Use data before 21st century as train data (about 30%)
+test_data_1 <- filter(fulldata_1,fulldata_1$year >= '2000') # Use data after 21st century as test data (about 70%)
+
+head(train_data_1)
+head(test_data_1)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+skimr::skim(train_data_1)
+```
+
+$~$
+
+When skimming all the variables I collected using skim function from 'skimr' package , I examined the distribution for each variable. Most of the variables have a little bit skewness but acceptable. Below are two distribution examples (agricultural industry value and general industry value).
+
+$~$
+
+```{r,fig.height=3,fig.width=6,echo = FALSE, message = FALSE, warning= FALSE}
+#visualize the distribution for each variable
+train_data_1 %>% 
+  select(agri_value,industry_value) %>%
+  gather(var,val) %>% 
+  ggplot(aes(val,group=var)) +
+  geom_histogram() +
+  facet_wrap(~var,scales="free",ncol=2)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Split up the data
+train_data_2 <- filter(fulldata_2,fulldata_2$year < '2000' ) # Use data before 21st century as train data (about 30%)
+test_data_2 <- filter(fulldata_2,fulldata_2$year >= '2000') # Use data after 21st century as test data (about 70%)
+
+head(train_data_2)
+head(test_data_2)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+skimr::skim(train_data_2)
+```
+
+$~$
+
+Below are the distributions of the same variables in group two.
+
+$~$
+
+```{r,fig.height=3,fig.width=6,echo = FALSE, results = 'hide', message = FALSE, warning=FALSE}
+
+#visualize the distribution for each variable
+train_data_2 %>% 
+  select(agri_value,industry_value) %>% 
+  gather(var,val) %>% 
+  ggplot(aes(val,group=var)) +
+  geom_histogram() +
+  facet_wrap(~var,scales="free",ncol=2)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Choose predictors
+prediction_var_1 <- train_data_1 %>%
+  select(urban_population,rural_population,industry_value,agri_value,investment_energy,investment_transport,investment_water,access_electricity_ofpopulation,FDI,PM2.5,GDP_growth,CO2_emission)
+```
+
+# Analysis
+
+Before looking at the data, I first split the data up into a training and test dataset and would hold off on looking at the test data because I didn’t want the analysis to be biased. Since every variable is discovered and collected one by one, they are all continuous and not dummy. There are a lot of missing values in different variables, so I imputed them using knn method. Then, I generated my recipe which can impute missing values and normalize values, and then apply it to training and test data. Next, I used the k-fold cross-validation method with 5 folds in the data for every model so that I would make a fair and equal comparison.
+
+$~$
+
+Now it’s the time to explore the different models. In the project, I used three models. The first one is Linear Regression, which is very straightforward. The second model is K-Nearest Neighbors, which first identifies K, a given value, training observations that are closest to the independent value and then estimates the outcome using the average of all the training responses in independent values (tuning parameter are set to be 1, 5, 10, 50). The third one is Random Forest, a model that takes many random samples of training sets from the data and then build separate tree on each training set and average the predictions. 
+
+$~$
+
+After testing and comparing among several models, random forest appears to be the best one for both groups, because it has the lowest RMSE and highest R squared which means the estimated result is very close to the real relationship between outcome variable and predictors. Below are the tables of RMSE and R squared for both groups.
+
+$~$
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Initialize recipe
+recipe_1 <- recipe(CO2_emission ~ ., data = prediction_var_1)
+
+recipe_1 <- 
+  recipe_1 %>% 
+  step_knnimpute(all_predictors()) %>% # imputing all missing variables
+  step_center(all_numeric()) %>%  # normalizing the values
+  step_scale(all_numeric()) %>%
+  step_dummy(all_nominal()) %>% # turning nominal values to dummy values
+  prep()
+
+recipe_1
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Bake
+train_data_1_2 <- bake(recipe_1,train_data_1)
+test_data_1_2 <- bake(recipe_1,test_data_1)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+set.seed(1998)  #random seed
+
+folds_1 <- createFolds(train_data_1_2$CO2_emission, k = 5)  # folding 5 times
+
+control_conditions_1 <-   #establishing control settings
+  trainControl(method='cv',  
+               index = folds_1  
+  )
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+mod_lm_1 <-
+  train(CO2_emission ~ .,          # Equation (outcome and everything else)
+        data=train_data_1_2, # Training data 
+        method = "lm",    # linear model
+        metric = "RMSE",   # mean squared error
+        trControl = control_conditions_1 # Cross validation conditions
+  )
+
+mod_lm_1
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# parameters to play around with
+knn_tune_1 = expand.grid(k = c(1,5,10,50))
+
+mod_knn_1 <-
+  train(CO2_emission ~ .,            
+        data=train_data_1_2,
+        method = "knn",    # K-Nearest Neighbors Algorithm
+        metric = "RMSE",    
+        trControl = control_conditions_1,  
+        tuneGrid = knn_tune_1 # Vary the tuning parameter K 
+  )
+
+mod_knn_1
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+ranger_tune_1 <- expand.grid(mtry = c(4,6,8),splitrule = 'variance',min.node.size = 1)
+
+mod_rf_1 <-
+  train(CO2_emission ~ ., 
+        data=train_data_1_2, 
+        method = "ranger", # random forest (ranger is much faster than rf)
+        metric = "RMSE",     # mean squared error
+        trControl = control_conditions_1,
+        tuneGrid = ranger_tune_1,
+        importance = 'impurity'
+  )
+
+mod_rf_1
+```
+
+```{r,fig.height=3,fig.width=3, echo = FALSE, results = 'hide', message = FALSE}
+# list of all models which should be compared
+mod_list_1 <-
+  list(
+    lm = mod_lm_1,
+    knn = mod_knn_1,
+    rf = mod_rf_1
+  )
+
+# the lower the error, the better
+dotplot(resamples(mod_list_1),metric = "RMSE")
+
+# This plots represents the fit of th model. The higher, the more fitting.
+# the closer the model is to the actual sample data.
+dotplot(resamples(mod_list_1),metric = "Rsquared")
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Choose predictors
+prediction_var_2 <- train_data_2 %>%
+  select(urban_population,rural_population,industry_value,agri_value,investment_energy,investment_transport,investment_water,access_electricity_ofpopulation,FDI,PM2.5,GDP_growth,CO2_emission)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Initialize recipe
+recipe_2 <- recipe(CO2_emission ~ ., data = prediction_var_2)
+
+recipe_2 <- 
+  recipe_2 %>% 
+  step_knnimpute(all_predictors()) %>% # imputing all missing variables
+  step_center(all_numeric()) %>%  # normalizing the values
+  step_scale(all_numeric()) %>%
+  step_dummy(all_nominal()) %>% # turning nominal values to dummy values
+  prep()
+
+recipe_2
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# Bake
+train_data_2_2 <- bake(recipe_2,train_data_2)
+test_data_2_2 <- bake(recipe_2,test_data_2)
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+set.seed(1998)  #random seed
+
+folds_2 <- createFolds(train_data_2_2$CO2_emission, k = 5)  # folding 5 times
+
+control_conditions_2 <-   #establishing control settings
+  trainControl(method='cv',  
+               index = folds_2  
+  )
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+mod_lm_2 <-
+  train(CO2_emission ~ .,          # Equation (outcome and everything else)
+        data=train_data_2_2, # Training data 
+        method = "lm",    # linear model
+        metric = "RMSE",   # mean squared error
+        trControl = control_conditions_2 # Cross validation conditions
+  )
+
+mod_lm_2
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+# parameters to play around with
+knn_tune_2 = expand.grid(k = c(1,5,10,50))
+
+mod_knn_2 <-
+  train(CO2_emission ~ .,            
+        data=train_data_2_2,
+        method = "knn",    # K-Nearest Neighbors Algorithm
+        metric = "RMSE",    
+        trControl = control_conditions_2,  
+        tuneGrid = knn_tune_2 # Vary the tuning parameter K 
+  )
+
+mod_knn_2
+```
+
+```{r, echo = FALSE, results = 'hide', message = FALSE}
+ranger_tune_2 <- expand.grid(mtry = c(4,6,8),splitrule = 'variance',min.node.size = 1)
+
+mod_rf_2 <-
+  train(CO2_emission ~ ., 
+        data=train_data_2_2, 
+        method = "ranger", # random forest (ranger is much faster than rf)
+        metric = "RMSE",     # mean squared error
+        trControl = control_conditions_2,
+        tuneGrid = ranger_tune_2,
+        importance = 'impurity'
+  )
+
+mod_rf_2
+```
+
+```{r,fig.height=3,fig.width=3, echo = FALSE, results = 'hide', message = FALSE}
+# list of all models which should be compared
+mod_list_2 <-
+  list(
+    lm = mod_lm_2,
+    knn = mod_knn_2,
+    rf = mod_rf_2
+  )
+
+# the lower the error, the better
+dotplot(resamples(mod_list_2),metric = "RMSE")
+
+# This plots represents the fit of th model. The higher, the more fitting.
+# the closer the model is to the actual sample data.
+dotplot(resamples(mod_list_2),metric = "Rsquared")
+```
+
+$~$
+
+With random forest being the best model, I am able to explore the variable importance and then partial dependency. The results turned out to be as shown in the tables in the Results section.
+
+# Results
+
+For group one, after testing and comparing among several models, I have found that the model with the best performance is random forest, because it has the lowest RMSE and highest R squared. By running random forest, I found out that the most important variables are investment in transportation industry, urban population and investment in energy industry. Similarly, for group two, random forest is still the best performed model and the most important variables are urban population, investment in water industry and rural population. The difference of variable importance between two groups is clear, which indicates that the factors that influence CO2 emission are different due to the development level of countries. Furthermore, the most important variable of each group and CO2 emission are positively correlated.
+
+$~$
+
+For countries that have higher GDP, it seems that investment in environment related industries are important in driving CO2 emission, especially investment in transportation and energy industry. It makes sense because transportation and energy industry are usually where new advanced technology emerges and are the direct and main cause for CO2 emission. Richer countries usually have higher urbanization rate, and larger urban population means more frequent use of things that emit greenhouse gases.
+
+$~$
+
+```{r,fig.height=3,fig.width=6, echo = FALSE, results = 'hide', message = FALSE}
+# Examine the variable importance
+plot(varImp(mod_rf_1,scale=T),top = 10)
+```
+
+$~$
+
+As for the partial dependence, I tested the most important variable of this group, investment in transportation industry. The table shows that investment in transportation and CO2 emission are positively correlated, which is consistent with my analysis. However, when investment in transportation reaches a certain level, its influence on CO2 emission starts to fade because CO2 emission level starts to become relatively constant, which might indicate that the development level of transportation industry is not always a factor that affects CO2 emission. Perhaps transportation industry would be less important when it is well developed.
+
+$~$
+
+```{r,fig.height=3,fig.width=4, echo = FALSE, results = 'hide', message = FALSE}
+pdp_data_1 = pdp::partial(mod_rf_1, 
+                        pred.var = c("investment_transport"), 
+                        ice = F, 
+                        center = F, 
+                        prob = T,
+                        type= "regression",
+                        train = train_data_1_2) 
+
+pdp_data_1 %>% 
+  ggplot(aes(investment_transport,yhat)) + geom_line()+labs(y="CO2_emission")
+```
+
+$~$
+
+For countries that have lower GDP, the most important variables are interesting. Unlike the first group, investment in transportation and energy seem to be a lot less important. Instead, investment in water industry are the second most important variable, which might indicate that water related industries are more important and paid more attention in these countries and therefore drive CO2 emissions more. Another interesting finding is that urban and rural population are both very important in this group. These two indicators reflect the urbanization degree of a country which measures a country’s development level in whole. This implies that a country’s general development level, instead of the development level of certain industries, is a more important factor that influences CO2 emissions when it is still developing and has a low GDP.
+
+$~$
+
+```{r,fig.height=3,fig.width=6, echo = FALSE, results = 'hide', message = FALSE}
+# Examine the variable importance
+plot(varImp(mod_rf_2,scale=T),top = 10)
+```
+
+$~$
+
+Here, I tested partial dependence for the most important variable in the second group, urban population. The table below shows that CO2 emission is positively affected by urban population, and when urban population reaches a certain level, CO2 emission starts to show a sudden increase. This is interesting because it might imply that urbanization degree is a very important factor that affects CO2 emission. Since countries with lower GDP are generally focusing on increasing urbanization degree, this could mean that an increase of CO2 emission in these countries is inevitable.
+
+```{r,fig.height=3,fig.width=4, echo = FALSE, results = 'hide', message = FALSE}
+pdp_data_2 = pdp::partial(mod_rf_2, 
+                        pred.var = c("urban_population"), 
+                        ice = F, 
+                        center = F,
+                        prob = T,
+                        type= "regression",
+                        train = train_data_2_2) 
+
+pdp_data_2 %>% 
+  ggplot(aes(urban_population,yhat)) + geom_line() +labs(y="CO2_emission")
+```
+
+# Discussion
+
+In all, I think I have achieved what I set out to do. I did find out which variables are the most important. For group one, the most important variables are investment in transportation industry, urban population and investment in energy industry. For group two, the most important variables are urban population, investment in water industry and rural population. Also, the most important variables in both groups positively affects CO2 emission. The success also lies in the fact that the most important variables are different, which gives a sense that the development level of a country and the factors that drive CO2 emission are correlated. 
+
+$~$
+
+Since the outcome variable in this analysis, CO2 emission, is not categorical, I quickly decided to use regression method instead of classification. If given more time, there are two directions I want to further expand this analysis. First, I would like to find more indicators to make the model more reliable and see if I can get more important indicators than I have got in this analysis. Second, I would like to assign country groups by other standards such as continent the country is in, regime type or whether the country joins OECD or not.
+
+\newpage
+[1]  Ritchie, Hannah, and Max Roser. "CO₂ and Greenhouse Gas Emissions." Our World in Data (2017).
